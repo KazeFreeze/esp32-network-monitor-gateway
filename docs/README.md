@@ -1,66 +1,83 @@
-# ESP32 Wake-on-LAN MQTT API Documentation
+# ESP32 Wake-on-LAN MQTT API Reference
 
-This device acts as a secure bridge between HiveMQ Cloud and your local network. It responds to JSON-based commands over MQTT.
+The device acts as a bridge between HiveMQ Cloud and your local network, responding to JSON commands over MQTT.
 
-## 📡 MQTT Configuration
-- **Broker:** HiveMQ Cloud (TLS Port 8883)
-- **Command Topic:** `home/wol/command`
-- **Result Topic:** `home/wol/scan/result`
-- **Status Topic:** `home/wol/status`
-- **Heartbeat Topic:** `home/wol/heartbeat`
+## MQTT Topics
+
+| Topic | Direction | Purpose |
+|---|---|---|
+| `home/wol/command` | Inbound | Send commands to the device |
+| `home/wol/scan/result` | Outbound | Scan events and discovered devices |
+| `home/wol/status` | Outbound | Ping results |
+| `home/wol/heartbeat` | Outbound | Periodic device health report |
+
+**Broker:** HiveMQ Cloud, TLS port 8883
 
 ---
 
-## 🛠 Commands (Send to `home/wol/command`)
+## Commands
 
-### 1. Wake-on-LAN
-Wakes up a target computer on the local network.
+### Wake-on-LAN
+
+Sends a magic packet to wake a target machine on the local network.
+
 ```json
 {
   "cmd": "wake",
   "mac": "AA:BB:CC:DD:EE:FF",
-  "broadcast": "255.255.255.255" (optional)
+  "broadcast": "255.255.255.255"
 }
 ```
 
-### 2. Single Device Ping
-Checks if a specific IP is online and returns the latency.
-```json
-{
-  "cmd": "ping",
-  "ip": "192.168.254.109"
-}
-```
-**Response Topic:** `home/wol/status`
-```json
-{ "ip": "192.168.254.109", "online": true, "latency": 4.50, "timestamp": 12345 }
-```
-
-### 3. Network Scan
-Scans the entire `/24` subnet for all connected devices using a **dual-sweep strategy** for maximum accuracy.
-
-#### 🔄 Scanning Strategy
-1.  **Sweep 1 (Fast)**: Uses lightweight UDP triggers to find always-on devices (PCs, routers, servers).
-2.  **Sweep 2 (Thorough)**: Uses ICMP (Ping) fallback to wake up sleeping devices (iPhones, Androids, Laptops in standby).
-
-```json
-{
-  "cmd": "scan"
-}
-```
-
-#### 📡 Response Topic: `home/wol/scan/result`
-The scanner streams results as they are found.
-
--   **Scan Started**: `{"event": "scan_started"}`
--   **Scan Rejected**: `{"event": "scan_rejected", "reason": "already_scanning"}` (Sent if a scan is requested while one is already in progress).
--   **Device Found**: `{"ip": "192.168.254.109", "mac": "2C:F0:5D:57:5C:63", "status": "online", "sweep": 1}`
--   **Scan Complete**: `{"event": "scan_complete", "total_found": 15, "sweep1": 10, "sweep2": 5}`
+`broadcast` is optional and defaults to the subnet broadcast address.
 
 ---
 
-## 💓 Heartbeat (Automatic)
-The device reports its own health periodically to `home/wol/heartbeat`.
+### Ping
+
+Checks whether a specific IP is reachable and returns latency.
+
+```json
+{
+  "cmd": "ping",
+  "ip": "192.168.1.100"
+}
+```
+
+Response on `home/wol/status`:
+
+```json
+{ "ip": "192.168.1.100", "online": true, "latency": 4.50, "timestamp": 12345 }
+```
+
+---
+
+### Network Scan
+
+Scans the local `/24` subnet using a dual-sweep strategy.
+
+```json
+{ "cmd": "scan" }
+```
+
+**Sweep 1** sends lightweight UDP probes to find always-on devices (PCs, routers, servers).
+**Sweep 2** follows up with ICMP pings to catch devices that were in standby (phones, laptops).
+
+Results stream to `home/wol/scan/result` as devices are found:
+
+| Event | Payload |
+|---|---|
+| Scan started | `{"event": "scan_started"}` |
+| Scan already running | `{"event": "scan_rejected", "reason": "already_scanning"}` |
+| Device found | `{"ip": "192.168.1.100", "mac": "2C:F0:5D:57:5C:63", "status": "online", "sweep": 1}` |
+| Scan complete | `{"event": "scan_complete", "total_found": 15, "sweep1": 10, "sweep2": 5}` |
+
+---
+
+## Heartbeat
+
+The device publishes to `home/wol/heartbeat` on a fixed interval with basic health info.
+
 ```json
 {
   "device": "ESP32-Gateway",
@@ -73,7 +90,8 @@ The device reports its own health periodically to `home/wol/heartbeat`.
 
 ---
 
-## 🔒 Security
-- **Authentication:** TLS/SSL verified with HiveMQ Root CA.
-- **Privacy:** `secrets.h` is excluded from git to protect WiFi and MQTT credentials.
-- **Resilience:** Non-blocking connection logic. If WiFi/MQTT drops, the device continues to function and auto-reconnects.
+## Security
+
+- TLS/SSL verified against the HiveMQ root CA.
+- `secrets.h` is excluded from version control — WiFi and MQTT credentials stay local.
+- Connection logic is non-blocking; the device auto-reconnects if WiFi or MQTT drops.

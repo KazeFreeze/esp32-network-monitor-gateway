@@ -1,33 +1,32 @@
 # ESP32 Wake-on-LAN MQTT Gateway
 
-A secure, low-latency bridge between HiveMQ Cloud (MQTT) and your local network to remotely wake, ping, and scan devices. Designed to integrate seamlessly with automation platforms like n8n or Home Assistant.
+A bridge between HiveMQ Cloud (MQTT) and your local network to remotely wake, ping, and scan devices. Designed to work with automation platforms like n8n or Home Assistant.
 
-## 🚀 Key Features
+For a full writeup on how this was built, see the [blog post](https://bernardtapiru.com/posts/projects/esp32-n8n-gateway).
 
-- **Dual-Sweep Scanner**: A specialized two-pass discovery engine that can detect modern smartphones and laptops even in deep Wi-Fi sleep modes.
-- **WOL over MQTT**: Trigger Wake-on-LAN magic packets for any local device via a simple JSON MQTT command.
-- **Secure by Default**: Uses TLS 1.2 for all MQTT communications with HiveMQ Cloud.
-- **Modular Architecture**: Clean C++ implementation with dedicated managers for WiFi, MQTT, WOL, and Network Scanning.
+## Key Features
 
-## 🛠 Hardware & Build
+- **Dual-Sweep Scanner**: Two-pass discovery that detects smartphones and laptops even when in deep Wi-Fi sleep.
+- **WOL over MQTT**: Trigger Wake-on-LAN magic packets for any local device via a simple JSON command.
+- **Secure by Default**: TLS 1.2 for all MQTT communications with HiveMQ Cloud.
+- **Modular Architecture**: Separate managers for WiFi, MQTT, WOL, and network scanning.
 
-- **Controller**: ESP32 (Support for both 40MHz and 26MHz XTAL boards).
-- **Communication**: 2.4GHz WiFi + MQTT (Secure Port 8883).
-- **Firmware Framework**: Arduino with PlatformIO.
+## Hardware & Build
 
-## 📡 MQTT Interface
+- **Controller**: ESP32 (supports both 40MHz and 26MHz XTAL boards)
+- **Communication**: 2.4GHz WiFi + MQTT (port 8883, TLS)
+- **Firmware Framework**: Arduino with PlatformIO
 
-The gateway responds to JSON commands on `home/wol/command`. For full documentation, see the [MQTT API Specification](./docs/README.md).
+## MQTT Interface
 
-### Quick Example: Network Scan
+The gateway listens for JSON commands on `home/wol/command`. See the [MQTT API Reference](./docs/README.md) for the full command set.
+
+### Quick example
+
 ```json
 { "cmd": "scan" }
 ```
 
-## 🧠 Development Note
+## License
 
-This firmware was developed with the assistance of generative AI for rapid protocol optimization and specialized network discovery algorithms.
-
-## ⚖️ License
-
-MIT License - see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE) for details.
