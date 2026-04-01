@@ -1,0 +1,2832 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "478bb0b5-6c0e-43a3-85a3-ba60bb4f6b8a",
+      "name": "Telegram Command",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2320,
+        11824
+      ],
+      "webhookId": "55c974af-fe49-409f-813a-bbe2ce17da30",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.message.from.id }}",
+              "rightValue": 123456789,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              },
+              "id": "4e8fc8f8-e228-4719-98ad-f16db0a1c9e3"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bed2ef3d-ff94-4013-a44c-b31eeff51513",
+      "name": "Is Owner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2112,
+        11824
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.item.json.message.text || \"\";\n// Regex matches /command target extra (ignores spaces)\nconst match = text.match(/^\\/([a-zA-Z0-9_]+)(?:\\s+(.*))?/);\n\nlet command = \"unknown\";\nlet target = \"\";\nlet extra = \"\";\n\nif (match) {\n    command = match[1].toLowerCase();\n    const args = (match[2] || \"\").trim();\n    if (args) {\n        const parts = args.split(/\\s+/);\n        target = parts[0];\n        \n        // Normalize MAC address to uppercase to prevent DB duplicates\n        if (/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/i.test(target)) {\n            target = target.toUpperCase();\n        }\n        \n        extra = parts.slice(1).join(\" \");\n    }\n}\n\nreturn [{ json: { command, target, extra, original_text: text } }];"
+      },
+      "id": "d2931bbb-ca28-426d-8fc5-dbc8de5536ec",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1888,
+        11824
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "network_devices"
+        },
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "id": "c7f029fe-7466-4af9-9fb4-ea1c72aafc05",
+      "name": "Get Devices (Resolver)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1360,
+        11200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parseData = $node[\"Parse Message\"].json;\nconst target = parseData.target;\nconst command = parseData.command;\n\nif (!target) {\n    return [{ json: { resolved: false, reason: `\u26a0\ufe0f Please specify a target for /${command}.\\n\\nExample: /${command} MyPC` } }];\n}\n\nconst devices = $input.all().map(i => i.json);\n\n// Regex patterns for raw MAC and IP detection\nconst isMac = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/i.test(target);\nconst isIp = /^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$/.test(target);\n\nlet mac = isMac ? target : null;\nlet ip = isIp ? target : null;\n\nif (isMac) {\n    // Try to find the corresponding IP in the DB\n    const found = devices.find(d => d.mac && d.mac.toLowerCase() === target.toLowerCase());\n    if (found && found.ip) ip = found.ip;\n} else if (isIp) {\n    // Try to find the corresponding MAC in the DB\n    const found = devices.find(d => d.ip === target);\n    if (found && found.mac) mac = found.mac;\n} else {\n    // It's an alias, search the database\n    const found = devices.find(d => d.name && d.name.toLowerCase() === target.toLowerCase());\n    if (found) {\n        mac = found.mac;\n        ip = found.ip;\n    } else {\n        return [{ json: { resolved: false, reason: `\u274c Target '<b>${target}</b>' not found.\\nPlease provide a valid MAC, IP, or saved Alias.` } }];\n    }\n}\n\n// Final Command Validations\nif (command === \"wake\" && !mac) {\n    return [{ json: { resolved: false, reason: `\u274c Could not resolve a MAC address for '<b>${target}</b>'. Wake-on-LAN requires a MAC.\\n\\n<i>Tip: Check if the device is correctly saved via /list</i>` } }];\n}\nif (command === \"ping\" && !ip) {\n    return [{ json: { resolved: false, reason: `\u274c Could not resolve an IP address for '<b>${target}</b>'. Ping requires an IP.\\n\\n<i>Tip: Try running /scan while the device is awake so the bot can learn its IP!</i>` } }];\n}\n\nreturn [{ json: { resolved: true, mac: mac, ip: ip, target: target, command: command } }];"
+      },
+      "id": "dc95bfb1-c491-42ce-8eb5-ddd3a75e1e3a",
+      "name": "Resolve Target",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1136,
+        11200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.resolved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "id": "d6da4a90-bc26-4a84-8a7f-e9f6a4318dd6"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2684bbe9-233d-4d0a-9a0b-6467c9273172",
+      "name": "Is Resolved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -912,
+        11200
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "={{ $json.reason }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "a7d66ee1-367a-4d50-a572-69bd65b143c3",
+      "name": "Resolution Error Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -688,
+        11328
+      ],
+      "webhookId": "391014ca-3e43-4b9b-8a1c-278b7beb188b",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "topic": "home/wol/command",
+        "sendInputData": false,
+        "message": "={{ JSON.stringify({ \"cmd\": \"wake\", \"mac\": $json.mac }) }}",
+        "options": {}
+      },
+      "id": "c652aa86-3a6e-4884-b701-3b02c79d2845",
+      "name": "MQTT Wake",
+      "type": "n8n-nodes-base.mqtt",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        10944
+      ],
+      "credentials": {
+        "mqtt": {
+          "id": "",
+          "name": "HiveMQ"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "topic": "home/wol/command",
+        "sendInputData": false,
+        "message": "={{ JSON.stringify({ \"cmd\": \"ping\", \"ip\": $json.ip }) }}",
+        "options": {}
+      },
+      "id": "d1b4e7aa-763b-4f85-a5fc-98d3f492af1b",
+      "name": "MQTT Ping",
+      "type": "n8n-nodes-base.mqtt",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        11104
+      ],
+      "credentials": {
+        "mqtt": {
+          "id": "",
+          "name": "HiveMQ"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u2705 <b>Magic Packet Sent</b>\n\u2514 Target: <code>{{ $json.mac }}</code>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "5eb6e25a-35ef-4b52-8298-98bf51d05d22",
+      "name": "Wake Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        10944
+      ],
+      "webhookId": "b53a44dd-5d10-48a6-abb2-42493392deab",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u2705 <b>Ping Command Sent</b>\n\u2514 Target: <code>{{ $json.ip }}</code>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "29e98f9c-dd20-4f56-bea9-6a783cb79d76",
+      "name": "Ping Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        11104
+      ],
+      "webhookId": "eb7ffb3b-0457-415d-b6f5-e088fc2938de",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "\u26a0\ufe0f <b>Invalid Format</b>\n\nTo save an alias, use:\n<code>/name [MAC_Address] [Alias]</code>\n\nExample: <code>/name AA:BB:CC:11:22 Desktop</code>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "aecba982-701a-41b6-95ed-bd7014f85da0",
+      "name": "Format Error Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1136,
+        11808
+      ],
+      "webhookId": "a7cdf8fe-347c-4837-a8f2-0c928fccc30d",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "network_devices"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "mac",
+              "keyValue": "={{ $json.target }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "mac": "={{ $node[\"Parse Message\"].json.target }}",
+            "name": "={{ $node[\"Parse Message\"].json.extra }}",
+            "is_known": true
+          },
+          "matchingColumns": [
+            "mac"
+          ],
+          "schema": [
+            {
+              "id": "mac",
+              "displayName": "mac",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "is_known",
+              "displayName": "is_known",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_seen",
+              "displayName": "last_seen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "ip",
+              "displayName": "ip",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e5cd3d3d-5b9e-40ad-b98f-6181d5f5ee45",
+      "name": "Save Alias",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1136,
+        11648
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u2705 <b>Alias Saved</b>\n\u2514 <code>{{ $json.name }}</code> mapped to <code>{{ $json.mac }}</code>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "4a197ce9-da1a-4055-82f8-1eacf4987d98",
+      "name": "Confirm Alias",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -912,
+        11648
+      ],
+      "webhookId": "152b0857-8f1d-4a72-b5f3-ef0ec7a77acc",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "\u23f3 <b>Starting Network Scan...</b>\n\u2514 ESP32 is probing the subnet.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "de29d329-c8c4-4163-9028-1078785f9ccc",
+      "name": "Scan Feedback",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1360,
+        12000
+      ],
+      "webhookId": "65519666-e071-4b1a-9073-689e4aa5103b",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "topic": "home/wol/command",
+        "sendInputData": false,
+        "message": "{\"cmd\": \"scan\"}",
+        "options": {}
+      },
+      "id": "f4cf34f8-4822-4741-a035-07ee9f8a8298",
+      "name": "MQTT Trigger Scan",
+      "type": "n8n-nodes-base.mqtt",
+      "typeVersion": 1,
+      "position": [
+        -928,
+        12000
+      ],
+      "credentials": {
+        "mqtt": {
+          "id": "",
+          "name": "HiveMQ"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "af473ca0-c25e-40e4-bf9c-c93aef77378b",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "owner",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "wake",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "6064c447-d06a-4c13-b3e5-de0b28b7bc05"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "42aed3f3-81fc-4b1b-93f7-723f3a03a0ba",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "ping",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "27ab125d-3e1b-4bce-ac0e-10dbf5b6bde2",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "list",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "06bd6d49-ef9d-45bf-962b-27ca4ab58177",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "name",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1486f22a-e21e-44d1-8933-d45a820d5a7f",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "scan",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d6f013f5-3562-490e-9786-b2b3d446dcea",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "help",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "31675b2e-d418-4960-aba8-1a2ae338f1c6",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "presence",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e7086c4c-0073-4df6-845e-b7cea79fe6f2",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "settings",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -1616,
+        11776
+      ],
+      "id": "b5d20cb1-ef84-48db-bd27-75ffb301c893",
+      "name": "Bot Command Switch"
+    },
+    {
+      "parameters": {
+        "jsCode": "const parseData = $node[\"Parse Message\"].json;\n// Default to bylastseen if no parameter is provided\nconst listParam = (parseData.target || \"bylastseen\").toLowerCase();\n\nlet devices = $input.all().map(i => i.json);\n\n// 1. Sort the devices based on the parameter\nif (listParam === \"byowner\") {\n    devices.sort((a, b) => {\n        const ownerA = a.owner || \"ZZZ_Unowned\"; \n        const ownerB = b.owner || \"ZZZ_Unowned\";\n        return ownerA.localeCompare(ownerB);\n    });\n} else {\n    // Default: Sort by last_seen descending\n    devices.sort((a, b) => {\n        const dateA = new Date(a.last_seen || 0);\n        const dateB = new Date(b.last_seen || 0);\n        return dateB - dateA;\n    });\n}\n\n// 2. Build the output chunks (safe for Telegram's character limits)\nconst chunks = [];\nlet currentChunk = `\ud83d\udccb <b>Device List (Sorted ${listParam}):</b>\\n\\n`;\nconst MAX_LENGTH = 3900; \n\nfor (const d of devices) {\n    const name = d.name || 'Unnamed Device';\n    const mac = d.mac || 'Unknown MAC';\n    const vendor = d.vendor ? ` [<i>${d.vendor}</i>]` : '';\n    const owner = d.owner ? ` \ud83d\udc64 ${d.owner}` : '';\n    \n    const line = `\u2022 ${name}${vendor}${owner} (<code>${mac}</code>)\\n`;\n\n    if (currentChunk.length + line.length > MAX_LENGTH) {\n        chunks.push({ json: { text: currentChunk } });\n        currentChunk = \"\ud83d\udccb <b>Device List (Cont.):</b>\\n\\n\" + line;\n    } else {\n        currentChunk += line;\n    }\n}\n\n// 3. CORRECTED CHECK: Check 'devices.length' instead of 'chunks.length'\nif (devices.length === 0) {\n    chunks.push({ json: { text: \"\ud83d\udccb <b>No devices found in the database.</b>\" } });\n} else {\n    // Push whatever is left in the currentChunk bucket\n    chunks.push({ json: { text: currentChunk } });\n}\n\nreturn chunks;"
+      },
+      "id": "a77d593d-3293-4d7c-9477-4ac90e287bae",
+      "name": "Format and Chunk List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        11424
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "0a04b658-4aa0-4dc5-a71f-6a45f9765b52",
+      "name": "Send List1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -896,
+        11424
+      ],
+      "webhookId": "8b92f389-bc1a-403c-bbba-600d01c90ae1",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\ud83e\udd16 <b>Network Monitor Bot Guide</b>\n\nHere are the commands you can use:\n\n\u26a1\ufe0f <b>Core Commands</b>\n\u2022 <code>/wake [MAC/IP/Alias]</code> - Wake up a device\n\u2022 <code>/ping [MAC/IP/Alias]</code> - Check if a device is online\n\u2022 <code>/scan</code> - Trigger a manual network scan\n\n\ud83d\udcca <b>Dashboards & Tracking</b>\n\u2022 <code>/presence</code> - View who is currently home\n\u2022 <code>/list</code> - List devices (add <code>byowner</code> or <code>bylastseen</code> to sort)\n\n\ud83d\udccb <b>Device Management</b>\n\u2022 <code>/name [MAC] [Alias]</code> - Save a short name for a MAC address\n\u2022 <code>/owner [MAC/IP/Alias] [Name]</code> - Assign a device to a person\n\n\u2699\ufe0f <b>Configuration</b>\n\u2022 <code>/settings network_monitor [key] [value]</code> - Update a system setting (e.g., notify_scan_complete false)\n\n\ud83d\udca1 <i>Tip: You can use a saved Alias (like 'MyPC') instead of a MAC/IP for the wake, ping, and owner commands!</i>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "759ca4b4-2499-421b-864c-d8b82cc710d6",
+      "name": "Send Help",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1360,
+        12224
+      ],
+      "webhookId": "a0055bfb-0bed-4e6e-84a8-8ccf605678b9",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "wake",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "ba431029-50ad-464d-9c36-551eefd832e4"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "aa61e43c-06d3-4e15-af8e-7dfe6825c199",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "ping",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "965b0d0e-8c24-4970-a3dc-134829a7d45f",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "owner",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -688,
+        11104
+      ],
+      "id": "af1b7f4d-3101-45f6-8fed-f836a8167da1",
+      "name": "Action Switch"
+    },
+    {
+      "parameters": {
+        "topics": "home/wol/status",
+        "options": {}
+      },
+      "id": "fcea398c-6e82-4dee-ab21-90776c704dd2",
+      "name": "On Ping Result",
+      "type": "n8n-nodes-base.mqttTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2320,
+        12928
+      ],
+      "credentials": {
+        "mqtt": {
+          "id": "",
+          "name": "HiveMQ"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nfor (const item of $input.all()) {\n    // Extract the payload\n    let payload = item.json.message !== undefined ? item.json.message : item.json;\n    \n    // If n8n received it as a string, parse it\n    if (typeof payload === 'string') {\n        try {\n            payload = JSON.parse(payload);\n        } catch(e) {\n            continue;\n        }\n    }\n\n    // Pass the cleaned payload forward\n    if (payload) {\n        results.push({ json: payload });\n    }\n}\n\nreturn results;"
+      },
+      "id": "dbcbeaf5-73ad-4c35-a00f-ebed9efcb478",
+      "name": "Parse Ping Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2112,
+        12928
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\ud83d\udcf6 <b>Ping Result</b>\n\u2514 IP: <code>{{ $json.ip }}</code>\n\u2514 Status: {{ $json.online ? '\ud83d\udfe2 Online' : '\ud83d\udd34 Offline' }}{{ $json.online ? `\\n\u2514 Latency: ${$json.latency}ms` : '' }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "c40a810d-5123-4b50-893a-687d99317fe6",
+      "name": "Send Ping Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1888,
+        12928
+      ],
+      "webhookId": "702e33be-5439-4736-9395-4361df51a323",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d31941a6-7d3c-4699-8613-41637aae1e92",
+              "leftValue": "={{ $json.target }}",
+              "rightValue": "=^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1360,
+        11744
+      ],
+      "id": "1677bc65-3a8e-4c62-8a4a-bec899e65c24",
+      "name": "Validate /name Format"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1152,
+        12096
+      ],
+      "id": "d12f6c1b-914b-467f-9f65-f66d8e1ff94c",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "network_devices"
+        },
+        "returnAll": true
+      },
+      "id": "e3714a4d-115f-4563-84bd-5845e6a9c20a",
+      "name": "Get Device List",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1360,
+        11424
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "network_devices"
+        },
+        "returnAll": true,
+        "orderBy": true,
+        "orderByColumn": "last_seen"
+      },
+      "id": "14f5c35b-c096-4626-9a5e-cea5f06b5c8c",
+      "name": "Get Device List (presence)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1360,
+        12448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const devices = $input.all().map(i => i.json);\n\n// Configuration: How many minutes until a device is considered \"Away\"?\nconst OFFLINE_MINUTES = 60;\nconst thresholdTime = new Date(Date.now() - (OFFLINE_MINUTES * 60 * 1000));\n\nconst owners = {};\nlet hasAnyOwner = false;\n\n// 1. Group devices by Owner and check presence\nfor (const d of devices) {\n    if (!d.owner) continue; // Skip unowned devices for the presence dashboard\n    \n    hasAnyOwner = true;\n    \n    if (!owners[d.owner]) {\n        owners[d.owner] = { isHome: false, devices: [] };\n    }\n\n    const lastSeen = new Date(d.last_seen || 0);\n    const isOnline = lastSeen > thresholdTime;\n\n    // If even one device is online, the owner is marked as Home\n    if (isOnline) {\n        owners[d.owner].isHome = true;\n    }\n\n    // Optional: Calculate friendly \"seen X mins ago\" string\n    const diffMins = Math.floor((Date.now() - lastSeen.getTime()) / 60000);\n    const seenText = diffMins < 1 ? \"Just now\" : `${diffMins}m ago`;\n\n    owners[d.owner].devices.push({\n        name: d.name || d.mac,\n        isOnline: isOnline,\n        seenText: seenText\n    });\n}\n\n// 2. Error Logic: If no owners are set in the database\nif (!hasAnyOwner) {\n    return [{ json: { \n        text: \"\u26a0\ufe0f <b>No Owners Configured</b>\\n\\nYou haven't assigned any devices to an owner yet in your database.\\n\\n<i>To use the Presence dashboard, manually add names to the 'owner' column in your Data Table for your known devices!</i>\" \n    }}];\n}\n\n// 3. Format the Dashboard\nlet outputText = \"\ud83c\udfe0 <b>Network Presence Report</b>\\n\\n\";\n\n// Sort owners alphabetically\nconst sortedOwners = Object.keys(owners).sort();\n\nfor (const ownerName of sortedOwners) {\n    const data = owners[ownerName];\n    const statusIcon = data.isHome ? \"\ud83d\udfe2 HOME\" : \"\ud83d\udd34 AWAY\";\n    \n    outputText += `\ud83d\udc64 <b>${ownerName}</b>: ${statusIcon}\\n`;\n    \n    // List their specific devices underneath\n    for (const dev of data.devices) {\n        const devIcon = dev.isOnline ? \"\ud83d\udcf1\" : \"\ud83d\udcf4\";\n        outputText += `  \u2514 ${devIcon} ${dev.name} <i>(Seen: ${dev.seenText})</i>\\n`;\n    }\n    outputText += \"\\n\";\n}\n\nreturn [{ json: { text: outputText.trim() } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1152,
+        12448
+      ],
+      "id": "bbcf3e74-3cf0-49d9-aa58-ced173edc01f",
+      "name": "Find offline devices"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -944,
+        12448
+      ],
+      "id": "57ac9b14-f446-4560-921b-d76bc2e67a3b",
+      "name": "Send a text message",
+      "webhookId": "90d38cf0-e2c6-4ead-81c3-cca69cd65847",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cccc9a8b-e925-4cb3-b29c-30cb48267b2d",
+              "leftValue": "={{ $node[\"Parse Message\"].json.extra }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -400,
+        11280
+      ],
+      "id": "01acaef5-726c-4cbf-b1ce-e035f7c4070c",
+      "name": "Validate format"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u26a0\ufe0f <b>Invalid Format</b>\n\nPlease specify an owner name to assign to this device.\nFormat: <code>/owner [MAC/IP/Alias] [OwnerName]</code>\n\nExample: <code>/owner MyPC Bernard</code>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "fda302a4-dc6c-4843-b980-5bd229f96d91",
+      "name": "Invalid Format Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        11456
+      ],
+      "webhookId": "391014ca-3e43-4b9b-8a1c-278b7beb188b",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "topics": "home/wol/heartbeat",
+        "options": {}
+      },
+      "id": "1247923b-770a-450d-aa0c-b5efc4568d47",
+      "name": "On Heartbeat",
+      "type": "n8n-nodes-base.mqttTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2320,
+        13152
+      ],
+      "credentials": {
+        "mqtt": {
+          "id": "",
+          "name": "HiveMQ"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "topics": "home/wol/scan/result",
+        "options": {}
+      },
+      "id": "14a4b9b1-8d14-43fb-9218-8fc5ad1ca693",
+      "name": "On Scan Result",
+      "type": "n8n-nodes-base.mqttTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2320,
+        13696
+      ],
+      "credentials": {
+        "mqtt": {
+          "id": "",
+          "name": "HiveMQ"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nfor (const item of $input.all()) {\n    // Extract the payload (handles differences between raw MQTT and wrapped JSON)\n    let payload = item.json.message !== undefined ? item.json.message : item.json;\n    \n    // If n8n received it as a string, parse it\n    if (typeof payload === 'string') {\n        try {\n            payload = JSON.parse(payload);\n        } catch(e) {\n            continue; // Skip if it's not valid JSON\n        }\n    }\n\n    // Skip utility events like {\"event\": \"scan_started\"}\n    if (!payload || payload.event) {\n        continue;\n    }\n\n    // Normalize MAC address to uppercase to prevent DB duplicates\n    if (payload.mac) {\n        payload.mac = String(payload.mac).toUpperCase().trim();\n    }\n    \n    results.push({ json: payload });\n}\n\nreturn results;"
+      },
+      "id": "16c948ed-69bc-404b-b8a6-a159b8c959e6",
+      "name": "Filter Scan Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1824,
+        13856
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4ed791c2-ace7-4d6b-9724-007ae155ad5f",
+              "leftValue": "={{ $json.vendor }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1392,
+        13856
+      ],
+      "id": "5e472900-b820-4794-b0b9-1ba01bcca961",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.macvendors.com/v1/lookup/{{ encodeURIComponent($json.mac) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1120,
+        13840
+      ],
+      "id": "3bb35561-9b70-47e0-83c7-b4971f0bdb62",
+      "name": "HTTP Request",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "maxTries": 5,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "",
+          "name": "Mac Vendors"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\ud83c\udd95 <b>New Device Detected!</b>\n\u2514 MAC: <code>{{ $json.mac }}</code>\n\u2514 IP: <code>{{ $json.ip }}</code>\n\u2514 Vendor: <b>{{ $json.vendor || 'Unknown Vendor' }}</b>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "bc2528dc-ed7d-4c4a-b050-d5110706571f",
+      "name": "Notify Unknown",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -656,
+        13888
+      ],
+      "webhookId": "b99fdbb2-c578-4f04-a8d1-01da1293d62d",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ JSON.parse($json.message).event }}",
+                    "rightValue": "scan_started",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "029909b1-9047-4246-b02a-faf21363ce49"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "57caf04b-eb22-492e-94d8-f1e0c9155b4a",
+                    "leftValue": "={{ JSON.parse($json.message).event }}",
+                    "rightValue": "scan_rejected",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "3c10cab9-b06a-4c05-8f2e-4a738cf8e538",
+                    "leftValue": "={{ JSON.parse($json.message).event }}",
+                    "rightValue": "scan_complete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -2112,
+        13664
+      ],
+      "id": "de3495ab-1e75-43b6-82d2-e5d6998f2f3c",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u26a0\ufe0f The ESP32 is already performing a background scan. Please try again in a moment.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "98743b45-79d6-4457-a88f-0faa30448bb2",
+      "name": "Notify Rejected",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1824,
+        13504
+      ],
+      "webhookId": "b99fdbb2-c578-4f04-a8d1-01da1293d62d",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1824,
+        13344
+      ],
+      "id": "290ea1d2-05ab-4394-b066-25fc6d4a40cb",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u26a0\ufe0f ESP32 Gateway just rebooted! Current WiFi Signal: {{ JSON.parse($json.message).rssi }}dBm",
+        "additionalFields": {}
+      },
+      "id": "939e2dfe-4177-47c8-a55e-e8985ec2b01c",
+      "name": "Send downtime update",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1872,
+        13152
+      ],
+      "webhookId": "702e33be-5439-4736-9395-4361df51a323",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2df2f71a-d7ba-4831-8626-8b56d7be291a",
+              "leftValue": "={{ JSON.parse($json.message).uptime }}",
+              "rightValue": 65,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2112,
+        13152
+      ],
+      "id": "63488352-093f-430a-895b-8498318a5959",
+      "name": "If downed"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "network_devices"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "mac",
+              "keyValue": "={{ $json.mac }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "is_known": false,
+            "mac": "={{ $json.mac }}",
+            "owner": "={{ $node[\"Parse Message\"].json.extra }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mac",
+              "displayName": "mac",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "is_known",
+              "displayName": "is_known",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_seen",
+              "displayName": "last_seen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "ip",
+              "displayName": "ip",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -176,
+        11264
+      ],
+      "id": "2d785db4-27ea-4c8d-8a5f-1ed1d3503ddb",
+      "name": "Upsert: owner update"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u2705 <b>Owner Assigned</b>\n\u2514 Device: <code>{{ $json.mac }}</code>\n\u2514 Owner: <b>{{ $json.owner }}</b>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "178eb213-739c-4158-ab06-46697a7cca07",
+      "name": "Owner success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        48,
+        11264
+      ],
+      "webhookId": "eb7ffb3b-0457-415d-b6f5-e088fc2938de",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "network_devices"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "mac",
+              "keyValue": "={{ $json.mac }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "mac": "={{ $json.mac }}",
+            "last_seen": "={{ $now }}",
+            "ip": "={{ $json.ip }}",
+            "sweep_found": "={{ $json.sweep }}"
+          },
+          "matchingColumns": [
+            "mac"
+          ],
+          "schema": [
+            {
+              "id": "mac",
+              "displayName": "mac",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "is_known",
+              "displayName": "is_known",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_seen",
+              "displayName": "last_seen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "ip",
+              "displayName": "ip",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "sweep_found",
+              "displayName": "sweep_found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "299bf5e5-a7fb-4909-873b-68e8172b940a",
+      "name": "Sync Device",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1600,
+        13856
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4ed791c2-ace7-4d6b-9724-007ae155ad5f",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1616,
+        13696
+      ],
+      "id": "d078db67-9627-41df-8d80-12bc15e01428",
+      "name": "If notify_scan_complete"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "global_settings"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "namespace",
+              "keyValue": "network_monitor"
+            },
+            {
+              "keyName": "key",
+              "keyValue": "notify_scan_complete"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1824,
+        13696
+      ],
+      "id": "9f5816c6-eef5-4d2d-b69e-a6dded87e46e",
+      "name": "Get notification settings"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u2705 Scan complete! Found {{ JSON.parse($('On Scan Result').item.json.message).total_found }} devices.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "b5ddd2a5-115a-4336-ae29-2f2730c49b61",
+      "name": "Notify Completed",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1344,
+        13712
+      ],
+      "webhookId": "b99fdbb2-c578-4f04-a8d1-01da1293d62d",
+      "alwaysOutputData": false,
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f0f8364d-c0aa-46fa-89ec-3939a073e734",
+              "leftValue": "={{ $json.target }}",
+              "rightValue": "network_monitor",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1360,
+        12672
+      ],
+      "id": "83ab5dc1-2deb-40e8-a5ae-3b4de8389877",
+      "name": "If network_monitor"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u26a0\ufe0f Unknown settings namespace: {{ $json.target }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1152,
+        12816
+      ],
+      "id": "c1e45411-9106-4ab8-8db9-27286f2d42cf",
+      "name": "Send unknown settings",
+      "webhookId": "90d38cf0-e2c6-4ead-81c3-cca69cd65847",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Grab the leftover text from your main parser\nconst extraText = $input.item.json.extra || \"\";\n\n// Split the text by spaces\nconst parts = extraText.trim().split(/\\s+/);\n\n// The first word is the key, everything after is the value\nconst key = parts[0] ? parts[0].toLowerCase() : null;\nconst value = parts.length > 1 ? parts.slice(1).join(\" \") : null;\n\n// Pass everything forward, adding our new clean variables\nreturn [{ \n    json: { \n        ...$input.item.json, \n        setting_key: key, \n        setting_value: value \n    } \n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1152,
+        12656
+      ],
+      "id": "2b4753b7-bbb0-4bc4-92d5-0f09c0c351b3",
+      "name": "Parse settings"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f0f8364d-c0aa-46fa-89ec-3939a073e734",
+              "leftValue": "={{ $json.setting_key }}",
+              "rightValue": "network_monitor",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "2faa5d54-b8da-4176-ac01-c63a98ee7b45",
+              "leftValue": "={{ $json.setting_value }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -944,
+        12656
+      ],
+      "id": "a79e2cef-e902-42e4-89b7-49f0a9a647fd",
+      "name": "If valid extra"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u26a0\ufe0f <b>Invalid Settings Format</b>\n\nPlease provide both a setting key and a value.\nFormat: <code>/settings network_monitor [key] [value]</code>\n\nExample: <code>/settings network_monitor notify_scan_complete off</code>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -768,
+        12816
+      ],
+      "id": "b2e86342-c533-41f4-9055-c334b9cb2e42",
+      "name": "Send settings format",
+      "webhookId": "90d38cf0-e2c6-4ead-81c3-cca69cd65847",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "global_settings"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "namespace",
+              "keyValue": "={{ $json.target }}"
+            },
+            {
+              "keyName": "=key",
+              "keyValue": "={{ $json.setting_key }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "value": "={{ $json.setting_value }}",
+            "namespace": "={{ $json.target }}",
+            "key": "={{ $json.setting_key }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "namespace",
+              "displayName": "namespace",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "key",
+              "displayName": "key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "value",
+              "displayName": "value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "type",
+              "displayName": "type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -688,
+        12640
+      ],
+      "id": "82930dbd-88ff-4226-8574-15343c52f965",
+      "name": "Update notify_scan_complete"
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=\u2699\ufe0f <b>Setting Updated</b>\n\u2514 Namespace: <code>{{ $json.namespace }}</code>\n\u2514 Key: <code>{{ $json.key }}</code>\n\u2514 Value: <b>{{ $json.value }}</b>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -464,
+        12640
+      ],
+      "id": "d7383bc0-f659-4f50-b29c-6b755bebe33f",
+      "name": "Confirm settings update",
+      "webhookId": "90d38cf0-e2c6-4ead-81c3-cca69cd65847",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "ESP 32 Network Monitor"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "network_devices"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "mac",
+              "keyValue": "={{ $('Filter Scan Data').item.json.mac }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vendor": "={{ $json.data.organization_name || 'Unknown Vendor' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mac",
+              "displayName": "mac",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "is_known",
+              "displayName": "is_known",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_seen",
+              "displayName": "last_seen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "ip",
+              "displayName": "ip",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -880,
+        13808
+      ],
+      "id": "0cd423ba-29c1-40b4-bd4a-7e68dddf64a7",
+      "name": "Vendor Known"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "network_devices"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "mac",
+              "keyValue": "={{ $('Filter Scan Data').item.json.mac }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vendor": "Unknown Vendor"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mac",
+              "displayName": "mac",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "is_known",
+              "displayName": "is_known",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_seen",
+              "displayName": "last_seen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "ip",
+              "displayName": "ip",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -880,
+        13968
+      ],
+      "id": "72aa18e5-be04-4143-b90b-7b4ecb79b632",
+      "name": "Vendor Unknown"
+    }
+  ],
+  "connections": {
+    "Telegram Command": {
+      "main": [
+        [
+          {
+            "node": "Is Owner?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Owner?": {
+      "main": [
+        [
+          {
+            "node": "Parse Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Message": {
+      "main": [
+        [
+          {
+            "node": "Bot Command Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Devices (Resolver)": {
+      "main": [
+        [
+          {
+            "node": "Resolve Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Target": {
+      "main": [
+        [
+          {
+            "node": "Is Resolved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Resolved?": {
+      "main": [
+        [
+          {
+            "node": "Action Switch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolution Error Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MQTT Wake": {
+      "main": [
+        [
+          {
+            "node": "Wake Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MQTT Ping": {
+      "main": [
+        [
+          {
+            "node": "Ping Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Alias": {
+      "main": [
+        [
+          {
+            "node": "Confirm Alias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scan Feedback": {
+      "main": [
+        [
+          {
+            "node": "MQTT Trigger Scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bot Command Switch": {
+      "main": [
+        [
+          {
+            "node": "Get Devices (Resolver)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Devices (Resolver)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Devices (Resolver)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Device List",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate /name Format",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Scan Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Help",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Device List (presence)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If network_monitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format and Chunk List": {
+      "main": [
+        [
+          {
+            "node": "Send List1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Switch": {
+      "main": [
+        [
+          {
+            "node": "MQTT Wake",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MQTT Ping",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On Ping Result": {
+      "main": [
+        [
+          {
+            "node": "Parse Ping Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ping Status": {
+      "main": [
+        [
+          {
+            "node": "Send Ping Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate /name Format": {
+      "main": [
+        [
+          {
+            "node": "Save Alias",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "MQTT Trigger Scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Device List": {
+      "main": [
+        [
+          {
+            "node": "Format and Chunk List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Device List (presence)": {
+      "main": [
+        [
+          {
+            "node": "Find offline devices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find offline devices": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        []
+      ]
+    },
+    "Validate format": {
+      "main": [
+        [
+          {
+            "node": "Upsert: owner update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Format Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invalid Format Reply": {
+      "main": [
+        []
+      ]
+    },
+    "On Heartbeat": {
+      "main": [
+        [
+          {
+            "node": "If downed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On Scan Result": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Scan Data": {
+      "main": [
+        [
+          {
+            "node": "Sync Device",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Vendor Known",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vendor Unknown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get notification settings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Filter Scan Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If downed": {
+      "main": [
+        [
+          {
+            "node": "Send downtime update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert: owner update": {
+      "main": [
+        [
+          {
+            "node": "Owner success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Device": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If notify_scan_complete": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Notify Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get notification settings": {
+      "main": [
+        [
+          {
+            "node": "If notify_scan_complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If network_monitor": {
+      "main": [
+        [
+          {
+            "node": "Parse settings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send unknown settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse settings": {
+      "main": [
+        [
+          {
+            "node": "If valid extra",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If valid extra": {
+      "main": [
+        [
+          {
+            "node": "Update notify_scan_complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send settings format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update notify_scan_complete": {
+      "main": [
+        [
+          {
+            "node": "Confirm settings update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vendor Known": {
+      "main": [
+        [
+          {
+            "node": "Notify Unknown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vendor Unknown": {
+      "main": [
+        [
+          {
+            "node": "Notify Unknown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "On Scan Result": [
+      {
+        "message": "{\"event\":\"scan_complete\",\"total_found\":10,\"sweep1\":4,\"sweep2\":6}",
+        "topic": "home/wol/scan/result"
+      }
+    ],
+    "Filter Scan Data": [
+      {
+        "ip": "192.168.254.254",
+        "mac": "68:58:11:6E:32:90",
+        "status": "online",
+        "sweep": 1
+      }
+    ],
+    "HTTP Request": [
+      {
+        "error": {
+          "message": "404 - \"{\\\"errors\\\":{\\\"detail\\\":\\\"Not Found\\\"}}\"",
+          "name": "AxiosError",
+          "stack": "AxiosError: Request failed with status code 404\n    at settle (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/axios@1.13.5/node_modules/axios/lib/core/settle.js:19:12)\n    at RedirectableRequest.handleResponse (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/axios@1.13.5/node_modules/axios/lib/adapters/http.js:746:9)\n    at RedirectableRequest.emit (node:events:520:35)\n    at RedirectableRequest._processResponse (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/follow-redirects@1.15.11/node_modules/follow-redirects/index.js:409:10)\n    at ClientRequest.RedirectableRequest._onNativeResponse (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/follow-redirects@1.15.11/node_modules/follow-redirects/index.js:102:12)\n    at Object.onceWrapper (node:events:623:26)\n    at ClientRequest.emit (node:events:508:28)\n    at HTTPParser.parserOnIncomingClient (node:_http_client:780:27)\n    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)\n    at TLSSocket.socketOnData (node:_http_client:615:22)\n    at Axios.request (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/axios@1.13.5/node_modules/axios/lib/core/Axios.js:46:41)\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at invokeAxios (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-core@file+packages+core_@opentelemetry+api@1.9.0_@opentelemetry+exporter-trace-otlp_9f358c3eeaef0d2736f54ac9757ada43/node_modules/n8n-core/src/execution-engine/node-execution-context/utils/request-helper-functions.ts:322:10)\n    at proxyRequestToAxios (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-core@file+packages+core_@opentelemetry+api@1.9.0_@opentelemetry+exporter-trace-otlp_9f358c3eeaef0d2736f54ac9757ada43/node_modules/n8n-core/src/execution-engine/node-execution-context/utils/request-helper-functions.ts:709:20)\n    at Object.request (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-core@file+packages+core_@opentelemetry+api@1.9.0_@opentelemetry+exporter-trace-otlp_9f358c3eeaef0d2736f54ac9757ada43/node_modules/n8n-core/src/execution-engine/node-execution-context/utils/request-helper-functions.ts:1832:4)",
+          "code": "ERR_BAD_REQUEST",
+          "status": 404
+        }
+      }
+    ],
+    "Vendor Known": [
+      {
+        "mac": "8C:4C:AD:41:C8:0C",
+        "name": null,
+        "owner": null,
+        "is_known": null,
+        "last_seen": "2026-04-01T07:42:30.963Z",
+        "ip": "192.168.254.1",
+        "vendor": "Evoluzn Inc.",
+        "sweep_found": 1,
+        "id": 101,
+        "createdAt": "2026-04-01T07:42:30.982Z",
+        "updatedAt": "2026-04-01T07:42:31.198Z"
+      }
+    ],
+    "Vendor Unknown": [
+      {
+        "mac": "8C:4C:AD:41:C8:0C",
+        "name": null,
+        "owner": null,
+        "is_known": null,
+        "last_seen": "2026-04-01T07:42:30.963Z",
+        "ip": "192.168.254.1",
+        "vendor": "Evoluzn Inc.",
+        "sweep_found": 1,
+        "id": 101,
+        "createdAt": "2026-04-01T07:42:30.982Z",
+        "updatedAt": "2026-04-01T07:42:31.198Z"
+      }
+    ]
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "4518143a48e1fbe766fc5eb62b417399b378f111def15af6d028aa4ef6015d0d"
+  }
+}

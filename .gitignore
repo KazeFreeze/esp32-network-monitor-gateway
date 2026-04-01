@@ -1,0 +1,8 @@
+.pio
+.vscode
+firmware/include/secrets.h
+skills-lock.json
+.agents/
+.claude/
+CLAUDE.md
+n8n/stash/
